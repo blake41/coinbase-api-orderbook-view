@@ -60,9 +60,7 @@ class OrderBook
          "heartbeat",
          {"name"=>"ticker", "product_ids"=>["BTC-USD"]}
         ]
-    }
-
-
+    }.to_json
 
     EM.run {
       ws = Faye::WebSocket::Client.new(API)
@@ -70,17 +68,14 @@ class OrderBook
       ws.send(request)
 
       ws.on :open do |event|
-        binding.pry
         p [:open]
       end
 
       ws.on :message do |event|
-        binding.pry
         parsed = JSON.parse(event.data)
         case parsed['type']
         when "snapshot"
           store_snapshot({:bids => parsed["bids"], :asks => parsed["asks"]})
-          binding.pry
         when "l2update"
           handle_update(parsed['changes'])
         end
@@ -92,8 +87,8 @@ class OrderBook
       end
 
       EventMachine.add_periodic_timer(1) do
-        # puts large_bids(sorted_bids)
-        # puts "--------------------------------"
+        puts large_bids(sorted_bids)
+        puts "--------------------------------"
       end
     }
   end
