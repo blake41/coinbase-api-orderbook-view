@@ -1,6 +1,5 @@
 require 'faye/websocket'
 require 'eventmachine'
-require 'rest-client'
 require 'pry'
 require 'pry-byebug'
 require 'json'
@@ -23,10 +22,21 @@ def display_data(data)
 end
 
 def add_timer
+
+  request = {
+      "jsonrpc" => "2.0",
+      "method" => "public/get_funding_chart_data",
+      "params" => {
+          "instrument_name" => "BTC-PERPETUAL",
+          "length" => "8h"
+      }
+  }.to_json
+
   EventMachine.add_periodic_timer(1) do
     begin
-      ws.send(request.to_json)
+      ws.send(request)
     rescue => e
+      binding.pry
       puts e.message
     end
   end
@@ -37,6 +47,7 @@ def ws
 end
 
 def ws_message
+
   ws.on :message do |event|
     parsed = JSON.parse(event.data)
     eight_hour_interest = parsed['result']['interest_8h']
@@ -67,14 +78,6 @@ def ws_close
   end
 end
 
-request = {
-    "jsonrpc" => "2.0",
-    "method" => "public/get_funding_chart_data",
-    "params" => {
-        "instrument_name" => "BTC-PERPETUAL",
-        "length" => "8h"
-    }
-}
 
 EM.run {
   @globals[:ws] = Faye::WebSocket::Client.new('wss://www.deribit.com/ws/api/v2')

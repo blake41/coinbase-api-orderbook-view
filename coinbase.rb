@@ -1,63 +1,103 @@
+require 'faye/websocket'
+require 'eventmachine'
+require 'pry'
+require 'pry-byebug'
+require 'json'
+
 class OrderBook
 
   API = "wss://ws-feed.pro.coinbase.com"
-
+  attr_reader :aggregate_by, :book, :approx_price
   def initialize
+    @book = Hash.new(0)
+    @aggregate_by = 5
+    @depth_in_hundreds = 300
+  end
 
+  def depth
+    @depth_in_hundreds / aggregate_by
   end
 
   def run
+    start_socket
+  end
+
+  def sorted_bids
+    result = book.keys.first(depth).sort_by do |element|
+      -book[element]
+    end.map do |element|
+      [element, book[element]]
+    end
+  end
+
+  def top_bids(bids)
+    bids.first(5)
+  end
+
+  def large_bids(bids)
+    bids.select {|bid| bid[1] > 10}
+  end
+
+  def store_snapshot(snapshot)
+    snapshot[:bids].each do |bid|
+      divisor = bid[0].to_i / aggregate_by
+      key = aggregate_by * divisor
+      @approx_price = key
+      @book[key] += bid[1].to_f
+    end
+  end
+
+  def handle_update(update)
 
   end
 
   def start_socket
     request = {
-        "jsonrpc" => "2.0",
-        "method" => "public/get_funding_chart_data",
-        "params" => {
-            "instrument_name" => "BTC-PERPETUAL",
-            "length" => "8h"
-        }
+      "type"=>"subscribe",
+       "product_ids"=>["BTC-USD"],
+       "channels" =>
+        ["level2",
+         "heartbeat",
+         {"name"=>"ticker", "product_ids"=>["BTC-USD"]}
+        ]
     }
+
+
 
     EM.run {
       ws = Faye::WebSocket::Client.new(API)
 
-      EventMachine.add_periodic_timer(1) do
-        begin
-          ws.send(request.to_json) }
-        rescue => e
-          puts e.message
-        end
-      end
+      ws.send(request)
 
       ws.on :open do |event|
+        binding.pry
         p [:open]
       end
 
       ws.on :message do |event|
+        binding.pry
         parsed = JSON.parse(event.data)
-        eight_hour_interest = parsed['result']['interest_8h']
-        current_interest = parsed['result']['current_interest']
-        if @globals[:current_interest] != current_interest
-          if current_interest < 0 && @globals[:neg_funding] == false
-            `say "Funding Negative"`
-            @globals[:neg_funding] = true
-          else
-            @globals[:neg_funding] = false
-          end
-          display_data({eight_hour_interest: eight_hour_interest, current_interest: current_interest})
+        case parsed['type']
+        when "snapshot"
+          store_snapshot({:bids => parsed["bids"], :asks => parsed["asks"]})
+          binding.pry
+        when "l2update"
+          handle_update(parsed['changes'])
         end
-        @globals[:current_interest] = current_interest
       end
 
       ws.on :close do |event|
         p [:close, event.code, event.reason]
         ws = nil
       end
+
+      EventMachine.add_periodic_timer(1) do
+        # puts large_bids(sorted_bids)
+        # puts "--------------------------------"
+      end
     }
   end
-
-
-
 end
+
+ob = OrderBook.new
+ob.run
