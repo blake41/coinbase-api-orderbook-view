@@ -7,9 +7,10 @@ require 'json'
 class OrderBook
 
   API = "wss://ws-feed.pro.coinbase.com"
-  attr_reader :aggregate_by, :book, :approx_price
+  attr_reader :aggregate_by, :book, :approx_price, :aggregated_book
   def initialize
     @book = Hash.new(0)
+    @aggregated_book = Hash.new(0)
     @aggregate_by = 5
     @depth_in_hundreds = 300
   end
@@ -40,15 +41,37 @@ class OrderBook
 
   def store_snapshot(snapshot)
     snapshot[:bids].each do |bid|
+      @book[bid[0].to_f] = bid[1].to_f
+    end
+  end
+
+  def store_aggregated_snapshot(snapshot)
+    snapshot[:bids].each do |bid|
       divisor = bid[0].to_i / aggregate_by
       key = aggregate_by * divisor
       @approx_price = key
-      @book[key] += bid[1].to_f
+      @aggregated_book[key] += bid[1].to_f
     end
   end
 
   def handle_update(update)
+    grouped_elements = update.group_by {|element| element[0]}
+    handle_bids(grouped_elements) if grouped_elements["buy"]
+    handle_offers(grouped_elements) if grouped_elements["sell"]
+  end
 
+  def handle_bids(changes)
+    handle_changes(changes["buy"])
+  end
+
+  def handle_offers(changes)
+    handle_changes(changes["sell"])
+  end
+
+  def handle_changes(changes)
+    changes.each do |change|
+      @book
+    end
   end
 
   def start_socket
@@ -70,7 +93,9 @@ class OrderBook
       ws.on :open do |event|
         p [:open]
       end
-
+      ws.on :error do |event|
+        binding.pry
+      end
       ws.on :message do |event|
         parsed = JSON.parse(event.data)
         case parsed['type']
