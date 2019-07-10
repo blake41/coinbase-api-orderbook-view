@@ -6,11 +6,14 @@ require 'json'
 
 class OrderBook
 
+  MAPPING = {"buy" => :bids, "sell" => :asks}
   API = "wss://ws-feed.pro.coinbase.com"
+
   attr_reader :aggregate_by, :book, :approx_price, :aggregated_book
+
   def initialize
-    @book = Hash.new(0)
-    @aggregated_book = Hash.new(0)
+    @book = {:bids => Hash.new(0), :asks => Hash.new(0)}
+    @aggregated_book = {:bids => Hash.new(0), :asks => Hash.new(0)}
     @aggregate_by = 5
     @depth_in_hundreds = 300
   end
@@ -23,11 +26,11 @@ class OrderBook
     start_socket
   end
 
-  def sorted_bids
-    result = book.keys.first(depth).sort_by do |element|
-      -book[element]
+  def sorted_bids(orders)
+    result = orders.keys.sort_by do |element|
+      -orders[element]
     end.map do |element|
-      [element, book[element]]
+      [element, orders[element]]
     end
   end
 
@@ -39,18 +42,31 @@ class OrderBook
     bids.select {|bid| bid[1] > 10}
   end
 
+  def close_bids(quotes)
+    quotes.select {|quote| quote[0] + @depth_in_hundreds > approx_price }
+  end
+
+  def close_asks(quotes)
+    quotes.select {|quote| quote[0] - @depth_in_hundreds < approx_price }
+  end
+
   def store_snapshot(snapshot)
-    snapshot[:bids].each do |bid|
-      @book[bid[0].to_f] = bid[1].to_f
+    [:bids, :asks].each do |type|
+      snapshot[type].each do |bid|
+        @book[type][bid[0].to_f] = bid[1].to_f
+      end
     end
   end
 
-  def store_aggregated_snapshot(snapshot)
-    snapshot[:bids].each do |bid|
-      divisor = bid[0].to_i / aggregate_by
-      key = aggregate_by * divisor
-      @approx_price = key
-      @aggregated_book[key] += bid[1].to_f
+  def calculate_aggregated_snapshot(snapshot)
+    @approx_price = snapshot[:bids].first[0]
+    @aggregated_book = {:bids => Hash.new(0), :asks => Hash.new(0)}
+    [:bids, :asks].each do |type|
+      snapshot[type].each do |bid|
+        divisor = bid[0].to_i / aggregate_by
+        key = aggregate_by * divisor
+        @aggregated_book[type][key] += bid[1].to_f
+      end
     end
   end
 
@@ -70,7 +86,11 @@ class OrderBook
 
   def handle_changes(changes)
     changes.each do |change|
-      @book
+      if change[2] == 0
+        @book[MAPPING[change[0]]].delete(change[1])
+      else
+        @book[MAPPING[change[0]]][change[1].to_f] = change[2].to_f
+      end
     end
   end
 
@@ -103,6 +123,7 @@ class OrderBook
           store_snapshot({:bids => parsed["bids"], :asks => parsed["asks"]})
         when "l2update"
           handle_update(parsed['changes'])
+          calculate_aggregated_snapshot(book)
         end
       end
 
@@ -112,7 +133,15 @@ class OrderBook
       end
 
       EventMachine.add_periodic_timer(1) do
-        puts large_bids(sorted_bids)
+        if aggregated_book[:bids]
+          puts "Bids:"
+          large_bids(close_bids(sorted_bids(aggregated_book[:bids]))).each {|quote| puts quote.join(" ")}
+        end
+        puts "--------------------------------"
+        if aggregated_book[:asks]
+          puts "Asks:"
+          large_bids(close_asks(sorted_bids(aggregated_book[:asks]))).each {|quote| puts quote.join(" ")}
+        end
         puts "--------------------------------"
       end
     }
