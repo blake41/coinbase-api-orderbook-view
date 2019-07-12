@@ -3,6 +3,7 @@ require 'eventmachine'
 require 'pry'
 require 'pry-byebug'
 require 'json'
+require_relative 'gui.rb'
 
 class OrderBook
 
@@ -43,11 +44,11 @@ class OrderBook
   end
 
   def close_bids(quotes)
-    quotes.select {|quote| quote[0] + @depth_in_hundreds > approx_price }
+    quotes.select {|quote| quote[0] + @depth_in_hundreds > approx_price }.first(5)
   end
 
   def close_asks(quotes)
-    quotes.select {|quote| quote[0] - @depth_in_hundreds < approx_price }
+    quotes.select {|quote| quote[0] - @depth_in_hundreds < approx_price }.first(5)
   end
 
   def store_snapshot(snapshot)
@@ -114,7 +115,8 @@ class OrderBook
         p [:open]
       end
       ws.on :error do |event|
-        binding.pry
+        # binding.pry
+        puts event.message
       end
       ws.on :message do |event|
         parsed = JSON.parse(event.data)
@@ -133,16 +135,16 @@ class OrderBook
       end
 
       EventMachine.add_periodic_timer(1) do
+        GUI.clear_screen
+        data = {}
         if aggregated_book[:bids]
-          puts "Bids:"
-          large_bids(close_bids(sorted_bids(aggregated_book[:bids]))).each {|quote| puts quote.join(" ")}
+          data[:bids] = large_bids(close_bids(sorted_bids(aggregated_book[:bids])))
         end
-        puts "--------------------------------"
         if aggregated_book[:asks]
-          puts "Asks:"
-          large_bids(close_asks(sorted_bids(aggregated_book[:asks]))).each {|quote| puts quote.join(" ")}
+          data[:asks] = large_bids(close_asks(sorted_bids(aggregated_book[:asks])))
         end
-        puts "--------------------------------"
+        @gui = GUI.new(data)
+        @gui.display_table
       end
     }
   end

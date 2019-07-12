@@ -33,12 +33,7 @@ def add_timer
   }.to_json
 
   EventMachine.add_periodic_timer(1) do
-    begin
-      ws.send(request)
-    rescue => e
-      binding.pry
-      puts e.message
-    end
+    ws.send(request)
   end
 end
 
