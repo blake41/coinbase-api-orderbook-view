@@ -30,7 +30,7 @@ class OrderBook
 
   def sorted_bids(orders, sort)
     mapping = {
-      :size => Proc.new{|element| -orders[element]},
+      :quantity => Proc.new{|element| -orders[element]},
       :price => Proc.new{|element| -element}
     }
     result = orders.keys.sort_by do |element|
@@ -109,6 +109,14 @@ class OrderBook
     close_asks(large_bids(sorted_bids(aggregated_book[:asks], :price))).first(7)
   end
 
+  def sort_bids_by_quantity
+    close_bids(large_bids(sorted_bids(aggregated_book[:bids], :quantity))).first(5)
+  end
+
+  def sort_asks_by_quantity
+    close_bids(large_bids(sorted_bids(aggregated_book[:bids], :quantity))).first(5)
+  end
+
   def start_socket
     request = {
       "type"=>"subscribe",
@@ -152,10 +160,10 @@ class OrderBook
         GUI.clear_screen
         data = {}
         if aggregated_book[:bids]
-          data[:bids] = sort_bids_by_price
+          data[:bids] = send("sort_bids_by_#{sort}")
         end
         if aggregated_book[:asks]
-          data[:asks] = sort_asks_by_price
+          data[:asks] = send("sort_asks_by_#{sort}")
         end
 
         @gui = GUI.new(data)
@@ -165,5 +173,5 @@ class OrderBook
   end
 end
 
-ob = OrderBook.new
+ob = OrderBook.new(ARGV[0])
 ob.run
