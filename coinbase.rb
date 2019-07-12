@@ -10,13 +10,14 @@ class OrderBook
   MAPPING = {"buy" => :bids, "sell" => :asks}
   API = "wss://ws-feed.pro.coinbase.com"
 
-  attr_reader :aggregate_by, :book, :approx_price, :aggregated_book
+  attr_reader :aggregate_by, :book, :approx_price, :aggregated_book, :sort
 
-  def initialize
+  def initialize(sort)
     @book = {:bids => Hash.new(0), :asks => Hash.new(0)}
     @aggregated_book = {:bids => Hash.new(0), :asks => Hash.new(0)}
     @aggregate_by = 5
     @depth_in_hundreds = 300
+    @sort = sort
   end
 
   def depth
@@ -27,10 +28,15 @@ class OrderBook
     start_socket
   end
 
-  def sorted_bids(orders)
+  def sorted_bids(orders, sort)
+    mapping = {
+      :size => Proc.new{|element| -orders[element]},
+      :price => Proc.new{|element| -element}
+    }
     result = orders.keys.sort_by do |element|
-      -orders[element]
-    end.map do |element|
+      mapping[sort].call(element)
+    end
+    result.map do |element|
       [element, orders[element]]
     end
   end
@@ -44,11 +50,11 @@ class OrderBook
   end
 
   def close_bids(quotes)
-    quotes.select {|quote| quote[0] + @depth_in_hundreds > approx_price }.first(5)
+    quotes.select {|quote| quote[0] + @depth_in_hundreds > approx_price }
   end
 
   def close_asks(quotes)
-    quotes.select {|quote| quote[0] - @depth_in_hundreds < approx_price }.first(5)
+    quotes.select {|quote| quote[0] - @depth_in_hundreds < approx_price }
   end
 
   def store_snapshot(snapshot)
@@ -95,6 +101,14 @@ class OrderBook
     end
   end
 
+  def sort_bids_by_price
+    large_bids(sorted_bids(aggregated_book[:bids], :price)).first(7)
+  end
+
+  def sort_asks_by_price
+    close_asks(large_bids(sorted_bids(aggregated_book[:asks], :price))).first(7)
+  end
+
   def start_socket
     request = {
       "type"=>"subscribe",
@@ -138,11 +152,12 @@ class OrderBook
         GUI.clear_screen
         data = {}
         if aggregated_book[:bids]
-          data[:bids] = large_bids(close_bids(sorted_bids(aggregated_book[:bids])))
+          data[:bids] = sort_bids_by_price
         end
         if aggregated_book[:asks]
-          data[:asks] = large_bids(close_asks(sorted_bids(aggregated_book[:asks])))
+          data[:asks] = sort_asks_by_price
         end
+
         @gui = GUI.new(data)
         @gui.display_table
       end
